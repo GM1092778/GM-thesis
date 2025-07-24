@@ -1,0 +1,41 @@
+#!/bin/bash
+#SBATCH --job-name=Nipbl_matrix_EryTSS
+#SBATCH --output=matrix_Nipbl_EryTSS_%j.out
+#SBATCH --time=01:00:00
+#SBATCH --mem=8G
+#SBATCH --cpus-per-task=1
+
+# Load deepTools environment
+module load python-base/3.11.3
+module load python-cbrg  # This includes deepTools
+
+# Step 1: Compute matrix around erythroid-specific TSSs
+computeMatrix reference-point \
+  --referencePoint center \
+  -b 2500 -a 2500 \
+  -S Nipbl_ChIP_seq.bw \
+  -R Erythroid_TSS.bed \
+  --binSize 10 \
+  -o matrix_Nipbl_spleen_mm39_EryTSS.gz \
+  --skipZeros
+
+#!/bin/bash
+#SBATCH --job-name=Nipbl_heatmap_EryTSS
+#SBATCH --output=heatmap_Nipbl_EryTSS_%j.out
+#SBATCH --time=01:00:00
+#SBATCH --mem=8G
+#SBATCH --cpus-per-task=1
+
+# Load deepTools environment
+module load python-base/3.11.3
+module load python-cbrg  # This includes deepTools
+
+# Step 2: Plot heatmap from matrix
+plotHeatmap \
+  -m matrix_Nipbl_spleen_mm39_EryTSS.gz \
+  -out heatmap_Nipbl_spleen_mm39_EryTSS.png \
+  --colorMap YlGnBu \
+  --zMin 0 --zMax 21 \
+  --whatToShow 'heatmap and colorbar' \
+  --heatmapWidth 5 \
+  --heatmapHeight 20
