@@ -1,0 +1,67 @@
+#!/bin/bash
+#SBATCH --job-name=atac_chip_pipeline
+#SBATCH --output=logs/pipeline_run_%j.log
+#SBATCH --time=6:00:00
+#SBATCH --mem=32G
+#SBATCH --cpus-per-task=8
+
+# Load required modules
+module load python-base/3.11.3
+module load python-cbrg  # includes deepTools, bedtools, samtools
+module load bowtie2/2.1.0
+module load trim_galore/0.3.1
+
+# Set paths
+GENOME_INDEX=/path/to/custom_mm9/index_basename
+CHROM_SIZE=/path/to/mm9.chrom.sizes
+GTF_ANNOTATION=/path/to/mm9.gtf
+
+# Input
+FASTQ1=sample_R1.fastq.gz
+FASTQ2=sample_R2.fastq.gz  # if paired-end
+SAMPLE_NAME=sample1
+THREADS=8
+
+# 1. Trim adapters with Trim Galore
+trim_galore --paired --stringency 2 --cores ${THREADS} ${FASTQ1} ${FASTQ2}
+
+# Output will be *_val_1.fq.gz and *_val_2.fq.gz
+
+# 2. Align to genome with Bowtie2
+bowtie2 -p ${THREADS} -x ${GENOME_INDEX} \
+  -1 ${SAMPLE_NAME}_R1_val_1.fq.gz \
+  -2 ${SAMPLE_NAME}_R2_val_2.fq.gz \
+  | samtools view -Sb - > ${SAMPLE_NAME}.bam
+
+# 3. Sort and index BAM
+samtools sort -@ ${THREADS} -o ${SAMPLE_NAME}_sorted.bam ${SAMPLE_NAME}.bam
+samtools index ${SAMPLE_NAME}_sorted.bam
+
+# 4. Remove PCR duplicates
+samtools rmdup ${SAMPLE_NAME}_sorted.bam ${SAMPLE_NAME}_rmdup.bam
+
+# 5. Extract reads from chr11
+samtools view -@ ${THREADS} -b ${SAMPLE_NAME}_rmdup.bam chr11 > ${SAMPLE_NAME}_chr11.bam
+
+# 6. Create normalised bigWig with deepTools (RPKM)
+bamCoverage -b ${SAMPLE_NAME}_chr11.bam \
+  -o ${SAMPLE_NAME}_chr11.bw \
+  --normalizeUsing RPKM \
+  --binSize 10 \
+  --numberOfProcessors ${THREADS}
+
+# 7. Merge replicates if needed (requires replicate .bedGraph)
+# First convert bigWig to bedGraph
+bigwigToBedGraph ${SAMPLE_NAME}_chr11.bw ${SAMPLE_NAME}.bedGraph
+
+# Repeat above for other replicates, then:
+# unionbedg -i rep1.bedGraph rep2.bedGraph ... > merged.bedGraph
+
+# 8. Convert merged bedGraph to bigWig
+# bedGraphToBigWig merged.bedGraph ${CHROM_SIZE} merged.bw
+
+# 9. Upload bigWig files to UCSC for visualisation
+# Create UCSC track hubs or upload manually
+
+# Done!
+echo "Pipeline completed for ${SAMPLE_NAME}"
